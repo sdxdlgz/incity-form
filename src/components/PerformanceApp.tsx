@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useMemo, useRef, useState } from "react";
+import { ChangeEvent, DragEvent, useMemo, useState } from "react";
 import { exportPerformanceWorkbook } from "@/lib/excel";
 import { buildSheetRows, defaultTargetMonth, findDuplicateDays, monthOptions } from "@/lib/sheet";
 import type { EditableRecord, OcrResponse, SalesMetrics } from "@/lib/types";
@@ -16,9 +16,6 @@ export default function PerformanceApp() {
   const [message, setMessage] = useState("请选择或拍摄小票图片。");
   const [targetMonth, setTargetMonth] = useState(defaultTargetMonth([]));
   const [dragging, setDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-
   const selectedRecords = useMemo(() => records.filter((record) => record.selected), [records]);
   const months = useMemo(() => monthOptions(records), [records]);
   const duplicates = useMemo(() => findDuplicateDays(selectedRecords), [selectedRecords]);
@@ -45,6 +42,11 @@ export default function PerformanceApp() {
 
   function removeFile(index: number) {
     setFiles((current) => current.filter((_, i) => i !== index));
+  }
+
+  function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
+    if (event.target.files) addFiles(event.target.files);
+    event.target.value = "";
   }
 
   async function recognize() {
@@ -128,32 +130,26 @@ export default function PerformanceApp() {
           </p>
         </div>
         <div className="hero-actions">
-          <button type="button" className="primary" onClick={() => cameraInputRef.current?.click()}>
+          <label className="file-action primary">
             拍照上传
-          </button>
-          <button type="button" className="secondary" onClick={() => fileInputRef.current?.click()}>
+            <input
+              type="file"
+              accept={ACCEPTED_IMAGES}
+              capture="environment"
+              onChange={handleFileInputChange}
+            />
+          </label>
+          <label className="file-action secondary">
             从相册/电脑选择
-          </button>
+            <input
+              type="file"
+              accept={ACCEPTED_IMAGES}
+              multiple
+              onChange={handleFileInputChange}
+            />
+          </label>
         </div>
       </section>
-
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept={ACCEPTED_IMAGES}
-        capture="environment"
-        multiple
-        hidden
-        onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && addFiles(event.target.files)}
-      />
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={ACCEPTED_IMAGES}
-        multiple
-        hidden
-        onChange={(event: ChangeEvent<HTMLInputElement>) => event.target.files && addFiles(event.target.files)}
-      />
 
       <section
         className={`upload-card ${dragging ? "dragging" : ""}`}
