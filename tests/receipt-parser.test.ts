@@ -43,6 +43,14 @@ const noisyHeaderRecord = parseReceiptText(sample.replace("????", "???? Markdown
 assert.deepEqual(noisyHeaderRecord.dineIn, { flow: 7235.4, amount: 6833.72, count: 357 });
 assert.deepEqual(noisyHeaderRecord.takeaway, { flow: 3520.7, amount: 2563.62, count: 180 });
 
+const htmlTableSample = sample.replace(
+  "?? ??? ???? ??\n????? 247 5075.7 4877.75\n????? 117 2116.3 1555.79\n??? 67 1382.9 1267.33\n???? 58 1298.9 928.72\n????? 30 579.5 504.23\n?????? 13 197.3 184.41\n???? 5 105.5 79.11\n",
+  '<table><tr><td>??</td><td>??? ????</td><td>??</td></tr><tr><td>?????</td><td>247 5075.7</td><td>4877.75</td></tr><tr><td>?????</td><td>117 2116.3</td><td>1555.79</td></tr><tr><td>???</td><td>67 1382.9</td><td>1267.33</td></tr><tr><td>????</td><td>58 1298.9</td><td>928.72</td></tr><tr><td>?????</td><td>30 579.5</td><td>504.23</td></tr><tr><td>??????</td><td>13 197.3</td><td>184.41</td></tr><tr><td>????</td><td>5 105.5</td><td>79.11</td></tr></table>\n',
+);
+const htmlTableRecord = parseReceiptText(htmlTableSample, "html-table.jpg");
+assert.deepEqual(htmlTableRecord.dineIn, { flow: 7235.4, amount: 6833.72, count: 357 });
+assert.deepEqual(htmlTableRecord.takeaway, { flow: 3520.7, amount: 2563.62, count: 180 });
+
 assert.equal(daysInMonth(2024, 2), 29);
 assert.equal(daysInMonth(2026, 2), 28);
 assert.equal(daysInMonth(2026, 4), 30);

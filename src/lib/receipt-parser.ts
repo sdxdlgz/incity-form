@@ -107,11 +107,18 @@ function parseChannels(text: string): Map<string, SalesMetrics> {
   const channels = new Map<string, SalesMetrics>();
   const channelBlock = getBlock(text, ["\u6e20\u9053\u7edf\u8ba1", "\u6e20\u9053\u7d71\u8a08"], ["\u5802\u98df\u8ba2\u5355\u652f\u4ed8\u7edf\u8ba1", "\u5802\u98df\u8a02\u55ae\u652f\u4ed8\u7d71\u8a08", "\u5802\u98df\u8ba2\u5355", "\u652f\u4ed8\u7edf\u8ba1"]);
   const searchIn = channelBlock || text;
-  const compact = compactText(searchIn);
   const canonicalChannels = [...DINE_IN_CHANNELS, ...TAKEAWAY_CHANNELS];
+  const tableRows = parseHtmlChannelRows(searchIn);
 
   for (const canonical of canonicalChannels) {
     const aliases = CHANNEL_ALIASES[canonical] ?? [canonical];
+    const tableMetrics = findHtmlChannelMetrics(tableRows, aliases);
+    if (tableMetrics) {
+      channels.set(canonical, tableMetrics);
+      continue;
+    }
+
+    const compact = compactText(searchIn);
     const metrics = parseChannelFromCompact(compact, aliases, canonicalChannels);
     if (metrics) {
       channels.set(canonical, metrics);
@@ -128,6 +135,48 @@ function parseChannels(text: string): Map<string, SalesMetrics> {
   }
 
   return channels;
+}
+
+function parseHtmlChannelRows(text: string): string[][] {
+  const rows: string[][] = [];
+  for (const rowMatch of text.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const rowHtml = rowMatch[1] ?? "";
+    const cells = [...rowHtml.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map((cell) =>
+      decodeHtml(stripHtml(cell[1] ?? "")).trim(),
+    );
+    if (cells.length > 0) rows.push(cells);
+  }
+  return rows;
+}
+
+function findHtmlChannelMetrics(rows: string[][], aliases: string[]): SalesMetrics | null {
+  const compactAliases = aliases.map(compactText).filter(Boolean);
+  for (const cells of rows) {
+    const name = compactText(cells[0] ?? "");
+    if (!compactAliases.some((alias) => name.includes(alias))) continue;
+    const numbers = cells.flatMap((cell) => [...cell.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0])));
+    if (numbers.length < 3) return null;
+    return {
+      count: Math.round(numbers[0] ?? 0),
+      flow: round2(numbers[1] ?? 0),
+      amount: round2(numbers[2] ?? 0),
+    };
+  }
+  return null;
+}
+
+function stripHtml(input: string): string {
+  return input.replace(/<[^>]*>/g, " ");
+}
+
+function decodeHtml(input: string): string {
+  return input
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'");
 }
 
 function parseChannelFromCompact(
