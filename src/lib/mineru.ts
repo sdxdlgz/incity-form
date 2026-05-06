@@ -125,8 +125,7 @@ async function uploadFiles(files: OcrFileInput[], fileUrls: MineruFileUrl[]) {
       }
       const response = await fetch(url, {
         method: "PUT",
-        body: file,
-        headers: file.type ? { "Content-Type": file.type } : undefined,
+        body: await file.arrayBuffer(),
       });
       if (!response.ok) {
         throw new Error(`上传 ${fileName} 到 MinerU 失败：${response.status} ${response.statusText}`);
