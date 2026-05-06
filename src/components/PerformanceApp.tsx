@@ -6,6 +6,8 @@ import { buildSheetRows, defaultTargetMonth, findDuplicateDays, monthOptions } f
 import type { EditableRecord, OcrResponse, SalesMetrics } from "@/lib/types";
 
 const ACCEPTED_IMAGES = "image/jpeg,image/png,image/webp,image/bmp,image/tiff";
+const MAX_IMAGE_DIMENSION = 1800;
+const JPEG_QUALITY = 0.82;
 
 type Status = "idle" | "uploading" | "success" | "error";
 
@@ -51,28 +53,30 @@ export default function PerformanceApp() {
 
   async function recognize() {
     if (files.length === 0) {
-      setMessage("请先上传至少一张小票图片。");
+      setMessage("Please upload at least one receipt image.");
       return;
     }
     setStatus("uploading");
-    setMessage("正在上传图片并调用 MinerU 识别，请稍候……");
+    setMessage("Compressing images and uploading for OCR...");
     try {
       const formData = new FormData();
-      files.forEach((file) => formData.append("files", file));
+      const uploadFiles = await Promise.all(files.map(prepareImageForUpload));
+      uploadFiles.forEach((file) => formData.append("files", file));
       const response = await fetch("/api/ocr", { method: "POST", body: formData });
-      const json = (await response.json()) as OcrResponse & { error?: string };
-      if (!response.ok) throw new Error(json.error || "识别失败");
+      const json = (await safeReadJson(response)) as OcrResponse & { error?: string };
+      if (!response.ok) throw new Error(json.error || `OCR failed (HTTP ${response.status})`);
       const editable = json.records.map((record) => ({ ...record, selected: true }));
       setRecords(editable);
       const defaultMonth = defaultTargetMonth(editable);
       setTargetMonth({ year: defaultMonth.year, month: defaultMonth.month });
       setStatus("success");
-      setMessage(`识别完成，共解析 ${editable.length} 张小票。请检查预览后导出。`);
+      setMessage(`OCR completed: parsed ${editable.length} receipt image(s). Please review before exporting.`);
     } catch (error) {
       setStatus("error");
-      setMessage(error instanceof Error ? error.message : "识别失败，请稍后重试。");
+      setMessage(formatFetchError(error));
     }
   }
+
 
   function updateRecord(id: string, updater: (record: EditableRecord) => EditableRecord) {
     setRecords((current) => current.map((record) => (record.id === id ? updater(record) : record)));
@@ -337,6 +341,48 @@ export default function PerformanceApp() {
       )}
     </main>
   );
+}
+
+async function prepareImageForUpload(file: File): Promise<File> {
+  if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/tiff") return file;
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(bitmap.width, bitmap.height));
+  if (scale >= 1 && file.size <= 2.5 * 1024 * 1024) {
+    bitmap.close();
+    return file;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return file;
+  }
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY));
+  if (!blob) return file;
+  const outputName = file.name.replace(/\.[^.]+$/, "") + ".jpg";
+  return new File([blob], outputName, { type: "image/jpeg", lastModified: file.lastModified });
+}
+
+async function safeReadJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return { error: `Server returned non-JSON content (HTTP ${response.status})` };
+  }
+}
+
+function formatFetchError(error: unknown): string {
+  if (error instanceof TypeError && /fetch/i.test(error.message)) {
+    return "Cannot connect to the local OCR service. Make sure the phone and computer are on the same network, Windows firewall allows port 3000, and open http://LAN-IP:3000 on the phone.";
+  }
+  return error instanceof Error ? error.message : "OCR failed. Please try again.";
 }
 
 function MetricEditor({
