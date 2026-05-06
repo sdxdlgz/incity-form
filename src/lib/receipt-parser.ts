@@ -107,8 +107,9 @@ function parseChannels(text: string): Map<string, SalesMetrics> {
   const channels = new Map<string, SalesMetrics>();
   const channelBlock = getBlock(text, ["\u6e20\u9053\u7edf\u8ba1", "\u6e20\u9053\u7d71\u8a08"], ["\u5802\u98df\u8ba2\u5355\u652f\u4ed8\u7edf\u8ba1", "\u5802\u98df\u8a02\u55ae\u652f\u4ed8\u7d71\u8a08", "\u5802\u98df\u8ba2\u5355", "\u652f\u4ed8\u7edf\u8ba1"]);
   const searchIn = channelBlock || text;
+  const htmlSearchIn = extractOriginalBlock(text, ["\u6e20\u9053\u7edf\u8ba1", "\u6e20\u9053\u7d71\u8a08"], ["\u5802\u98df\u8ba2\u5355\u652f\u4ed8\u7edf\u8ba1", "\u5802\u98df\u8a02\u55ae\u652f\u4ed8\u7d71\u8a08", "\u5802\u98df\u8ba2\u5355", "\u652f\u4ed8\u7edf\u8ba1"]) || text;
   const canonicalChannels = [...DINE_IN_CHANNELS, ...TAKEAWAY_CHANNELS];
-  const tableRows = parseHtmlChannelRows(searchIn);
+  const tableRows = parseHtmlChannelRows(htmlSearchIn);
 
   for (const canonical of canonicalChannels) {
     const aliases = CHANNEL_ALIASES[canonical] ?? [canonical];
@@ -153,7 +154,9 @@ function findHtmlChannelMetrics(rows: string[][], aliases: string[]): SalesMetri
   const compactAliases = aliases.map(compactText).filter(Boolean);
   for (const cells of rows) {
     const name = compactText(cells[0] ?? "");
-    if (!compactAliases.some((alias) => name.includes(alias))) continue;
+    const aliasMatched = compactAliases.some((alias) => name.includes(alias));
+    const fallbackMatched = compactAliases.some((alias) => alias.length === name.length && questionMask(alias) === name);
+    if (!aliasMatched && !fallbackMatched) continue;
     const numbers = cells.flatMap((cell) => [...cell.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0])));
     if (numbers.length < 3) return null;
     return {
@@ -164,6 +167,11 @@ function findHtmlChannelMetrics(rows: string[][], aliases: string[]): SalesMetri
   }
   return null;
 }
+
+function questionMask(input: string): string {
+  return Array.from(input).map(() => "?").join("");
+}
+
 
 function stripHtml(input: string): string {
   return input.replace(/<[^>]*>/g, " ");
@@ -315,6 +323,23 @@ function sumChannels(
     },
     { ...ZERO },
   );
+}
+
+function extractOriginalBlock(text: string, starts: string[], ends: string[]): string | null {
+  const startMatches = starts
+    .map((start) => ({ start, index: text.indexOf(start) }))
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index);
+  const foundStart = startMatches[0];
+  if (!foundStart) return null;
+
+  const searchFrom = foundStart.index + foundStart.start.length;
+  let endIndex = text.length;
+  for (const end of ends) {
+    const idx = text.indexOf(end, searchFrom);
+    if (idx >= 0 && idx < endIndex) endIndex = idx;
+  }
+  return text.slice(searchFrom, endIndex).trim();
 }
 
 function getBlock(text: string, starts: string[], ends: string[]): string | null {
