@@ -1,3 +1,4 @@
+import JSZip from "jszip";
 import { ReceiptRecord } from "./types";
 
 const MINERU_BASE_URL = "https://mineru.net";
@@ -152,17 +153,19 @@ async function pollExtractResults(token: string, batchId: string): Promise<Miner
   throw new Error(`MinerU 解析超时，请稍后重试。最后状态：${JSON.stringify(last).slice(0, 300)}`);
 }
 
-function mapExtractResults(response: MineruExtractResponse, files: OcrFileInput[]): OcrTextResult[] {
+async function mapExtractResults(response: MineruExtractResponse, files: OcrFileInput[]): Promise<OcrTextResult[]> {
   const items = extractResultItems(response.data ?? response);
-  return files.map(({ fileName }, index) => {
-    const item = findResultItem(items, fileName, index);
-    const text = extractTextFromItem(item);
-    return {
-      fileName,
-      text,
-      warnings: text ? [] : [`${fileName} 未能从 MinerU 结果中提取到文本。`],
-    };
-  });
+  return Promise.all(
+    files.map(async ({ fileName }, index) => {
+      const item = findResultItem(items, fileName, index);
+      const text = await extractTextFromItem(item);
+      return {
+        fileName,
+        text,
+        warnings: text ? [] : [`${fileName} MinerU result has no readable text.`],
+      };
+    }),
+  );
 }
 
 function extractResultItems(data: unknown): unknown[] {
@@ -187,10 +190,10 @@ function findResultItem(items: unknown[], fileName: string, index: number): unkn
   return found ?? items[index] ?? null;
 }
 
-function extractTextFromItem(item: unknown): string {
+async function extractTextFromItem(item: unknown): Promise<string> {
   if (!item) return "";
   if (typeof item === "string") return item;
-  if (Array.isArray(item)) return item.map(extractTextFromItem).filter(Boolean).join("\n");
+  if (Array.isArray(item)) return (await Promise.all(item.map(extractTextFromItem))).filter(Boolean).join("\n");
   if (typeof item !== "object") return "";
   const obj = item as Record<string, unknown>;
   const directKeys = [
@@ -209,10 +212,34 @@ function extractTextFromItem(item: unknown): string {
   for (const key of ["full_zip_url", "zip_url", "result_url", "md_url", "markdown_url", "url"]) {
     const value = obj[key];
     if (typeof value === "string" && /^https?:\/\//.test(value)) {
-      return `MinerU 返回了下载链接但未内嵌文本：${value}`;
+      return downloadTextFromMineruUrl(value);
     }
   }
-  return Object.values(obj).map(extractTextFromItem).filter(Boolean).join("\n");
+  return (await Promise.all(Object.values(obj).map(extractTextFromItem))).filter(Boolean).join("\n");
+}
+
+async function downloadTextFromMineruUrl(url: string): Promise<string> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) return `MinerU result download failed: ${response.status} ${response.statusText}`;
+  const contentType = response.headers.get("content-type") || "";
+  const bytes = await response.arrayBuffer();
+
+  if (contentType.includes("zip") || url.toLowerCase().includes(".zip")) {
+    const zip = await JSZip.loadAsync(bytes);
+    const markdownFile = findPreferredMarkdownFile(zip);
+    if (!markdownFile) return "";
+    return markdownFile.async("string");
+  }
+
+  return new TextDecoder("utf-8").decode(bytes);
+}
+
+function findPreferredMarkdownFile(zip: JSZip): JSZip.JSZipObject | null {
+  const files = Object.values(zip.files).filter((file) => !file.dir);
+  const exact = files.find((file) => /(^|\/)full\.md$/i.test(file.name));
+  if (exact) return exact;
+  const markdown = files.find((file) => /\.(md|markdown|txt)$/i.test(file.name));
+  return markdown ?? null;
 }
 
 function normalizeUploadUrls(input: unknown): MineruFileUrl[] {
@@ -248,7 +275,7 @@ function hasFinished(response: MineruExtractResponse): boolean {
   if (/running|processing|pending|extracting|waiting|排队|解析中|处理中/.test(text)) return false;
   if (/done|finished|success|completed|complete|解析成功|完成/.test(text)) return true;
   const items = extractResultItems(data ?? response);
-  return items.length > 0 && items.some((item) => Boolean(extractTextFromItem(item)));
+  return items.length > 0;
 }
 
 function isFailureCode(code: number | undefined): boolean {
