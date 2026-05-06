@@ -4,14 +4,18 @@ const MINERU_BASE_URL = "https://mineru.net";
 const MAX_POLL_ATTEMPTS = 40;
 const POLL_INTERVAL_MS = 3000;
 
-interface MineruFileUrl {
-  file_name?: string;
-  name?: string;
-  url?: string;
-  upload_url?: string;
-  file_id?: string;
-  id?: string;
-}
+type MineruFileUrl =
+  | string
+  | {
+      file_name?: string;
+      name?: string;
+      url?: string;
+      upload_url?: string;
+      uploadUrl?: string;
+      file_id?: string;
+      id?: string;
+      data_id?: string;
+    };
 
 interface MineruBatchApplyResponse {
   code?: number;
@@ -19,11 +23,18 @@ interface MineruBatchApplyResponse {
   message?: string;
   data?: {
     batch_id?: string;
+    batchId?: string;
     file_urls?: MineruFileUrl[];
+    fileUrls?: MineruFileUrl[];
+    urls?: MineruFileUrl[];
     files?: MineruFileUrl[];
   };
   batch_id?: string;
+  batchId?: string;
   file_urls?: MineruFileUrl[];
+  fileUrls?: MineruFileUrl[];
+  urls?: MineruFileUrl[];
+  files?: MineruFileUrl[];
 }
 
 interface MineruExtractResponse {
@@ -81,10 +92,23 @@ async function applyUploadUrls(token: string, files: OcrFileInput[]) {
     throw new Error(`申请 MinerU 上传地址失败：${json.msg || json.message || response.statusText}`);
   }
 
-  const batchId = json.data?.batch_id || json.batch_id;
-  const fileUrls = json.data?.file_urls || json.data?.files || json.file_urls || [];
+  const batchId = json.data?.batch_id || json.data?.batchId || json.batch_id || json.batchId;
+  const fileUrls = normalizeUploadUrls(
+    json.data?.file_urls ||
+      json.data?.fileUrls ||
+      json.data?.urls ||
+      json.data?.files ||
+      json.file_urls ||
+      json.fileUrls ||
+      json.urls ||
+      json.files ||
+      [],
+  );
+
   if (!batchId || fileUrls.length === 0) {
-    throw new Error("MinerU 返回缺少 batch_id 或上传地址。");
+    throw new Error(
+      `MinerU 返回缺少 batch_id 或上传地址。返回摘要：${summarizeForError(json)}`,
+    );
   }
   return { batchId, fileUrls };
 }
@@ -93,8 +117,12 @@ async function uploadFiles(files: OcrFileInput[], fileUrls: MineruFileUrl[]) {
   await Promise.all(
     files.map(async ({ file, fileName }, index) => {
       const matched = findUploadUrl(fileName, index, fileUrls);
-      const url = matched?.url || matched?.upload_url;
-      if (!url) throw new Error(`MinerU 未返回 ${fileName} 的上传地址。`);
+      const url = getUploadUrl(matched);
+      if (!url) {
+        throw new Error(
+          `MinerU 未返回 ${fileName} 的上传地址。上传地址摘要：${summarizeForError(fileUrls)}`,
+        );
+      }
       const response = await fetch(url, {
         method: "PUT",
         body: file,
@@ -188,11 +216,28 @@ function extractTextFromItem(item: unknown): string {
   return Object.values(obj).map(extractTextFromItem).filter(Boolean).join("\n");
 }
 
+function normalizeUploadUrls(input: unknown): MineruFileUrl[] {
+  if (Array.isArray(input)) return input as MineruFileUrl[];
+  if (!input || typeof input !== "object") return [];
+  return Object.values(input as Record<string, unknown>).flatMap((value) => {
+    if (typeof value === "string") return [value];
+    if (value && typeof value === "object") return [value as MineruFileUrl];
+    return [];
+  });
+}
+
+function getUploadUrl(item: MineruFileUrl | undefined): string | undefined {
+  if (!item) return undefined;
+  if (typeof item === "string") return item;
+  return item.url || item.upload_url || item.uploadUrl;
+}
+
 function findUploadUrl(fileName: string, index: number, fileUrls: MineruFileUrl[]): MineruFileUrl | undefined {
   const target = normalizeName(fileName);
   return (
     fileUrls.find((item) => {
-      const names = [item.file_name, item.name, item.id, item.file_id].filter(Boolean).map(String);
+      if (typeof item === "string") return false;
+      const names = [item.file_name, item.name, item.id, item.file_id, item.data_id].filter(Boolean).map(String);
       return names.some((name) => normalizeName(name) === target);
     }) ?? fileUrls[index]
   );
@@ -213,6 +258,13 @@ function isFailureCode(code: number | undefined): boolean {
 
 function normalizeName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+function summarizeForError(value: unknown): string {
+  return JSON.stringify(value, (_key, innerValue) => {
+    if (typeof innerValue === "string" && innerValue.length > 120) return `${innerValue.slice(0, 80)}...`;
+    return innerValue;
+  }).slice(0, 600);
 }
 
 function sleep(ms: number) {
