@@ -3,13 +3,13 @@ import { DINE_IN_CHANNELS, ReceiptRecord, SalesMetrics, TAKEAWAY_CHANNELS } from
 const ZERO: SalesMetrics = { flow: 0, amount: 0, count: 0 };
 
 const CHANNEL_ALIASES: Record<string, string[]> = {
-  微信小程序: ["微信小程序", "微信 小程序", "微信小程", "微信"],
-  进钱宝: ["进钱宝", "进线宝", "进銭宝", "进钱"],
-  抖音小程序: ["抖音小程序", "抖音 小程序", "抖音小程", "抖音"],
-  支付宝小程序: ["支付宝小程序", "支付宝 小程序", "支付宝小程"],
-  饿了么外卖: ["饿了么外卖", "饿了么 外卖", "饿了么", "饿了么外賣"],
-  美团外卖: ["美团外卖", "美团 外卖", "美團外賣", "美团"],
-  京东秒送: ["京东秒送", "京東秒送", "京东 秒送"],
+  ["\u5fae\u4fe1\u5c0f\u7a0b\u5e8f"]: ["\u5fae\u4fe1\u5c0f\u7a0b\u5e8f", "\u5fae\u4fe1 \u5c0f\u7a0b\u5e8f", "\u5fae\u4fe1\u5c0f\u7a0b", "\u5fae\u4fe1"],
+  ["\u8fdb\u94b1\u5b9d"]: ["\u8fdb\u94b1\u5b9d", "\u8fdb\u7ebf\u5b9d", "\u8fdb\u94b1"],
+  ["\u6296\u97f3\u5c0f\u7a0b\u5e8f"]: ["\u6296\u97f3\u5c0f\u7a0b\u5e8f", "\u6296\u97f3 \u5c0f\u7a0b\u5e8f", "\u6296\u97f3\u5c0f\u7a0b", "\u6296\u97f3"],
+  ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f"]: ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d \u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d\u5c0f\u7a0b"],
+  ["\u997f\u4e86\u4e48\u5916\u5356"]: ["\u997f\u4e86\u4e48\u5916\u5356", "\u997f\u4e86\u4e48 \u5916\u5356", "\u997f\u4e86\u4e48"],
+  ["\u7f8e\u56e2\u5916\u5356"]: ["\u7f8e\u56e2\u5916\u5356", "\u7f8e\u56e2 \u5916\u5356", "\u7f8e\u56e2"],
+  ["\u4eac\u4e1c\u79d2\u9001"]: ["\u4eac\u4e1c\u79d2\u9001", "\u4eac\u4e1c \u79d2\u9001"],
 };
 
 export function normalizeOcrText(input: string): string {
@@ -105,21 +105,113 @@ function parseRevenueStats(text: string, warnings: string[]): SalesMetrics {
 
 function parseChannels(text: string): Map<string, SalesMetrics> {
   const channels = new Map<string, SalesMetrics>();
-  const channelBlock = getBlock(text, ["渠道统计", "渠道統計"], ["堂食订单支付统计", "堂食訂單支付統計", "支付统计"]);
+  const channelBlock = getBlock(text, ["\u6e20\u9053\u7edf\u8ba1", "\u6e20\u9053\u7d71\u8a08"], ["\u5802\u98df\u8ba2\u5355\u652f\u4ed8\u7edf\u8ba1", "\u5802\u98df\u8a02\u55ae\u652f\u4ed8\u7d71\u8a08", "\u5802\u98df\u8ba2\u5355", "\u652f\u4ed8\u7edf\u8ba1"]);
   const searchIn = channelBlock || text;
-  const lines = searchIn
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const compact = compactText(searchIn);
+  const canonicalChannels = [...DINE_IN_CHANNELS, ...TAKEAWAY_CHANNELS];
 
-  for (const canonical of [...DINE_IN_CHANNELS, ...TAKEAWAY_CHANNELS]) {
+  for (const canonical of canonicalChannels) {
     const aliases = CHANNEL_ALIASES[canonical] ?? [canonical];
+    const metrics = parseChannelFromCompact(compact, aliases, canonicalChannels, canonical);
+    if (metrics) {
+      channels.set(canonical, metrics);
+      continue;
+    }
+
+    const lines = searchIn
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
     const line = findChannelLine(lines, aliases);
-    const metrics = line ? parseChannelLine(line, canonical, aliases) : null;
-    if (metrics) channels.set(canonical, metrics);
+    const lineMetrics = line ? parseChannelLine(line, canonical, aliases) : null;
+    if (lineMetrics) channels.set(canonical, lineMetrics);
   }
 
   return channels;
+}
+
+function parseChannelFromCompact(
+  compact: string,
+  aliases: string[],
+  allChannels: readonly string[],
+  canonical: string,
+): SalesMetrics | null {
+  const exact = compactText(canonical);
+  const index = compact.indexOf(exact);
+  if (index < 0) return null;
+
+  let end = compact.length;
+  for (const channel of allChannels) {
+    const channelIndex = compact.indexOf(compactText(channel), index + exact.length);
+    if (channelIndex >= 0 && channelIndex < end) end = channelIndex;
+  }
+
+  const segment = compact.slice(index + exact.length, end);
+  return parseChannelNumbers(segment);
+}
+
+function parseChannelNumbers(segment: string): SalesMetrics | null {
+  const spacedNumbers = [...segment.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
+  if (spacedNumbers.length >= 3 && /\s/.test(segment)) {
+    return {
+      count: Math.round(spacedNumbers[0] ?? 0),
+      flow: round2(spacedNumbers[1] ?? 0),
+      amount: round2(spacedNumbers[2] ?? 0),
+    };
+  }
+
+  const compact = compactText(segment);
+  const best = splitCompactChannelNumbers(compact);
+  if (!best) return null;
+  return best;
+}
+
+function splitCompactChannelNumbers(compact: string): SalesMetrics | null {
+  let best: { metrics: SalesMetrics; score: number } | null = null;
+
+  for (let countLength = 1; countLength <= 4 && countLength < compact.length; countLength += 1) {
+    const countText = compact.slice(0, countLength);
+    if (!/^\d+$/.test(countText)) continue;
+    const count = Number(countText);
+    const rest = compact.slice(countLength);
+
+    for (const flowText of decimalPrefixCandidates(rest)) {
+      const amountText = rest.slice(flowText.length);
+      if (!/^\d+\.\d+$/.test(amountText)) continue;
+      const flow = Number(flowText);
+      const amount = Number(amountText);
+      const score = scoreChannelCandidate(count, flow, amount);
+      if (!Number.isFinite(score)) continue;
+      if (!best || score > best.score) best = { metrics: { count, flow: round2(flow), amount: round2(amount) }, score };
+    }
+  }
+
+  return best?.metrics ?? null;
+}
+
+function decimalPrefixCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  for (const match of text.matchAll(/\./g)) {
+    const dot = match.index ?? -1;
+    if (dot <= 0) continue;
+    for (let decimals = 1; decimals <= 2; decimals += 1) {
+      const end = dot + 1 + decimals;
+      const candidate = text.slice(0, end);
+      if (/^\d+\.\d+$/.test(candidate) && end < text.length) candidates.push(candidate);
+    }
+  }
+  return candidates;
+}
+
+function scoreChannelCandidate(count: number, flow: number, amount: number): number {
+  if (count <= 0 || count > 2000 || flow <= 0 || amount <= 0) return Number.NEGATIVE_INFINITY;
+  if (flow < amount) return Number.NEGATIVE_INFINITY;
+  const average = flow / count;
+  if (average < 1 || average > 200) return Number.NEGATIVE_INFINITY;
+  const discountRatio = amount / flow;
+  if (discountRatio < 0.3 || discountRatio > 1.05) return Number.NEGATIVE_INFINITY;
+  const centsPreference = Number.isInteger(flow * 10) ? 0.1 : 0;
+  return 1000 - Math.abs(average - 18) - Math.abs(discountRatio - 0.9) * 20 + centsPreference;
 }
 
 function findChannelLine(lines: string[], aliases: string[]): string | null {
@@ -132,31 +224,19 @@ function findChannelLine(lines: string[], aliases: string[]): string | null {
 }
 
 function parseChannelLine(line: string, canonical: string, aliases: string[]): SalesMetrics | null {
-  let tail = line;
+  const compactLine = compactText(line);
+  let tail = compactLine;
+
   for (const alias of aliases) {
-    const idx = compactText(line).indexOf(compactText(alias));
+    const compactAlias = compactText(alias);
+    const idx = compactLine.indexOf(compactAlias);
     if (idx >= 0) {
-      tail = line.slice(Math.min(line.length, alias.length));
+      tail = compactLine.slice(idx + compactAlias.length);
       break;
     }
   }
 
-  const numbers = [...tail.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
-  if (numbers.length < 3) {
-    const allNumbers = [...line.matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));
-    if (allNumbers.length < 3) return null;
-    return {
-      count: Math.round(allNumbers[0] ?? 0),
-      flow: round2(allNumbers[1] ?? 0),
-      amount: round2(allNumbers[2] ?? 0),
-    };
-  }
-
-  return {
-    count: Math.round(numbers[0] ?? 0),
-    flow: round2(numbers[1] ?? 0),
-    amount: round2(numbers[2] ?? 0),
-  };
+  return parseChannelNumbers(tail);
 }
 
 function sumChannels(
@@ -177,11 +257,25 @@ function sumChannels(
 }
 
 function getBlock(text: string, starts: string[], ends: string[]): string | null {
-  const startPattern = starts.map(escapeRegExp).join("|");
-  const endPattern = ends.map(escapeRegExp).join("|");
-  const re = new RegExp(`(?:${startPattern})([\\s\\S]*?)(?=${endPattern}|$)`, "i");
-  const match = text.match(re);
-  return match?.[1]?.trim() ?? null;
+  const compact = compactText(text);
+  const compactStarts = starts.map(compactText);
+  const compactEnds = ends.map(compactText);
+  const startMatches = compactStarts
+    .map((start) => ({ start, index: compact.indexOf(start) }))
+    .filter((item) => item.index >= 0)
+    .sort((a, b) => a.index - b.index);
+
+  const foundStart = startMatches[0];
+  if (!foundStart) return null;
+
+  let endIndex = compact.length;
+  const searchFrom = foundStart.index + foundStart.start.length;
+  for (const end of compactEnds) {
+    const idx = compact.indexOf(end, searchFrom);
+    if (idx >= 0 && idx < endIndex) endIndex = idx;
+  }
+
+  return compact.slice(searchFrom, endIndex).trim();
 }
 
 function findLabeledNumber(text: string, labels: string[]): number | null {

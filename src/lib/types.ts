@@ -39,10 +39,10 @@ export interface EditableRecord extends ReceiptRecord {
 }
 
 export const DINE_IN_CHANNELS = [
-  "微信小程序",
-  "进钱宝",
-  "抖音小程序",
-  "支付宝小程序",
+  "\u5fae\u4fe1\u5c0f\u7a0b\u5e8f",
+  "\u8fdb\u94b1\u5b9d",
+  "\u6296\u97f3\u5c0f\u7a0b\u5e8f",
+  "\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f",
 ] as const;
 
-export const TAKEAWAY_CHANNELS = ["饿了么外卖", "美团外卖", "京东秒送"] as const;
+export const TAKEAWAY_CHANNELS = ["\u997f\u4e86\u4e48\u5916\u5356", "\u7f8e\u56e2\u5916\u5356", "\u4eac\u4e1c\u79d2\u9001"] as const;
