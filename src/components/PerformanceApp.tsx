@@ -278,6 +278,10 @@ export default function PerformanceApp() {
                       </ul>
                     </details>
                   )}
+                  <details>
+                    <summary>????????</summary>
+                    <pre className="raw-text">{record.rawText}</pre>
+                  </details>
                 </article>
               ))}
             </div>

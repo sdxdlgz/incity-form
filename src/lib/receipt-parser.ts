@@ -4,12 +4,12 @@ const ZERO: SalesMetrics = { flow: 0, amount: 0, count: 0 };
 
 const CHANNEL_ALIASES: Record<string, string[]> = {
   ["\u5fae\u4fe1\u5c0f\u7a0b\u5e8f"]: ["\u5fae\u4fe1\u5c0f\u7a0b\u5e8f", "\u5fae\u4fe1 \u5c0f\u7a0b\u5e8f", "\u5fae\u4fe1\u5c0f\u7a0b", "\u5fae\u4fe1"],
-  ["\u8fdb\u94b1\u5b9d"]: ["\u8fdb\u94b1\u5b9d", "\u8fdb\u7ebf\u5b9d", "\u8fdb\u94b1"],
+  ["\u8fdb\u94b1\u5b9d"]: ["\u8fdb\u94b1\u5b9d", "\u8fdb\u7ebf\u5b9d", "\u8fdb\u94b1", "\u8fdb\u94b1\u5b9d\u652f\u4ed8"],
   ["\u6296\u97f3\u5c0f\u7a0b\u5e8f"]: ["\u6296\u97f3\u5c0f\u7a0b\u5e8f", "\u6296\u97f3 \u5c0f\u7a0b\u5e8f", "\u6296\u97f3\u5c0f\u7a0b", "\u6296\u97f3"],
-  ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f"]: ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d \u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d\u5c0f\u7a0b"],
+  ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f"]: ["\u652f\u4ed8\u5b9d\u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d \u5c0f\u7a0b\u5e8f", "\u652f\u4ed8\u5b9d\u5c0f\u7a0b", "\u652f\u4ed8\u5b9d"],
   ["\u997f\u4e86\u4e48\u5916\u5356"]: ["\u997f\u4e86\u4e48\u5916\u5356", "\u997f\u4e86\u4e48 \u5916\u5356", "\u997f\u4e86\u4e48"],
   ["\u7f8e\u56e2\u5916\u5356"]: ["\u7f8e\u56e2\u5916\u5356", "\u7f8e\u56e2 \u5916\u5356", "\u7f8e\u56e2"],
-  ["\u4eac\u4e1c\u79d2\u9001"]: ["\u4eac\u4e1c\u79d2\u9001", "\u4eac\u4e1c \u79d2\u9001"],
+  ["\u4eac\u4e1c\u79d2\u9001"]: ["\u4eac\u4e1c\u79d2\u9001", "\u4eac\u4e1c \u79d2\u9001", "\u4eac\u4e1c"],
 };
 
 export function normalizeOcrText(input: string): string {
@@ -112,7 +112,7 @@ function parseChannels(text: string): Map<string, SalesMetrics> {
 
   for (const canonical of canonicalChannels) {
     const aliases = CHANNEL_ALIASES[canonical] ?? [canonical];
-    const metrics = parseChannelFromCompact(compact, aliases, canonicalChannels, canonical);
+    const metrics = parseChannelFromCompact(compact, aliases, canonicalChannels);
     if (metrics) {
       channels.set(canonical, metrics);
       continue;
@@ -134,20 +134,32 @@ function parseChannelFromCompact(
   compact: string,
   aliases: string[],
   allChannels: readonly string[],
-  canonical: string,
 ): SalesMetrics | null {
-  const exact = compactText(canonical);
-  const index = compact.indexOf(exact);
-  if (index < 0) return null;
+  const found = findFirstAlias(compact, aliases);
+  if (!found) return null;
 
   let end = compact.length;
   for (const channel of allChannels) {
-    const channelIndex = compact.indexOf(compactText(channel), index + exact.length);
-    if (channelIndex >= 0 && channelIndex < end) end = channelIndex;
+    for (const alias of CHANNEL_ALIASES[channel] ?? [channel]) {
+      const channelIndex = compact.indexOf(compactText(alias), found.end);
+      if (channelIndex >= 0 && channelIndex < end) end = channelIndex;
+    }
   }
 
-  const segment = compact.slice(index + exact.length, end);
+  const segment = compact.slice(found.end, end);
   return parseChannelNumbers(segment);
+}
+
+function findFirstAlias(compact: string, aliases: string[]): { index: number; end: number } | null {
+  return aliases
+    .map(compactText)
+    .filter(Boolean)
+    .map((alias) => {
+      const index = compact.indexOf(alias);
+      return { index, end: index >= 0 ? index + alias.length : -1 };
+    })
+    .filter((match) => match.index >= 0)
+    .sort((a, b) => a.index - b.index || b.end - a.end)[0] ?? null;
 }
 
 function parseChannelNumbers(segment: string): SalesMetrics | null {

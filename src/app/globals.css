@@ -347,6 +347,21 @@ details ul {
   padding: 8px 0 0 20px;
 }
 
+.raw-text {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff8f8;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid var(--border);

@@ -39,6 +39,10 @@ const collapsedRecord = parseReceiptText(sample.replace(/\n/g, " "), "collapsed.
 assert.deepEqual(collapsedRecord.dineIn, { flow: 7235.4, amount: 6833.72, count: 357 });
 assert.deepEqual(collapsedRecord.takeaway, { flow: 3520.7, amount: 2563.62, count: 180 });
 
+const noisyHeaderRecord = parseReceiptText(sample.replace("????", "???? Markdown??"), "noisy-header.jpg");
+assert.deepEqual(noisyHeaderRecord.dineIn, { flow: 7235.4, amount: 6833.72, count: 357 });
+assert.deepEqual(noisyHeaderRecord.takeaway, { flow: 3520.7, amount: 2563.62, count: 180 });
+
 assert.equal(daysInMonth(2024, 2), 29);
 assert.equal(daysInMonth(2026, 2), 28);
 assert.equal(daysInMonth(2026, 4), 30);
